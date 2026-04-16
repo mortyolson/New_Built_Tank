@@ -13,10 +13,10 @@ from backend_data import (
     get_steel_yield,
     get_ipe_profile_names,
     get_ipe_profile,
+    get_unp_profile,
     get_crown_ring_for_rafter,
     get_youngs_modulus_mpa,
 )
-
 
 ACCESSORIES_FIXED_COST_EUR = 100000.0
 
@@ -52,7 +52,8 @@ def calculate_bottom_design(
     corrosion_allowance_bottom,
     shell_design_n18,
 ):
-    _require_non_negative("tank_diameter", tank_diameter)
+    _require_positive("tank_diameter", tank_diameter)
+    _require_positive("design_liquid_height", design_liquid_height)
     _require_non_negative("corrosion_allowance_bottom", corrosion_allowance_bottom)
     _require_non_negative("shell_design_n18", shell_design_n18)
 
@@ -60,7 +61,7 @@ def calculate_bottom_design(
     bottom_plate_width = 2.5  # m
     bottom_plate_length = 10  # m
     annular_plate_length = 10  # m
-    annular_plate_width = 2.5  # m
+    annular_plate_width = 2.5  # m  # stock/purchase width
 
     annular_plate_material = "S355JR"
     bottom_plate_material = "S355JR"
@@ -68,36 +69,26 @@ def calculate_bottom_design(
     annular_plate_density = get_steel_density(annular_plate_material)
     bottom_plate_density = get_steel_density(bottom_plate_material)
 
-    if tank_diameter > 0:
-        _require_positive("design_liquid_height", design_liquid_height)
+    bottom_annular_plate_thickness = max(3 + shell_design_n18 / 3, 6)
+    annular_plate_corroded_thickness_mm = math.ceil(
+        bottom_annular_plate_thickness + corrosion_allowance_bottom
+    )
 
-        bottom_annular_plate_thickness = max(3 + shell_design_n18 / 3, 6)
-        annular_plate_corroded_thickness_mm = math.ceil(
-            bottom_annular_plate_thickness + corrosion_allowance_bottom
-        )
+    minimum_width_ia = max(
+        (240 / math.sqrt(design_liquid_height)) * annular_plate_corroded_thickness_mm,
+        500,
+    )  # mm
 
-        minimum_width_ia = max(
-            (240 / math.sqrt(design_liquid_height)) * annular_plate_corroded_thickness_mm,
-            500,
-        )
+    circumference = math.pi * tank_diameter
+    number_of_annular_plates = math.ceil(circumference / annular_plate_length)
 
-        circumference = math.pi * tank_diameter
-        number_of_annular_plates = math.ceil(circumference / annular_plate_length)
-
-        single_annular_plate_volume_m3 = (
-            annular_plate_width
-            * annular_plate_length
-            * annular_plate_corroded_thickness_mm
-            * 0.001
-        )
-        total_annular_plate_volume_m3 = single_annular_plate_volume_m3 * number_of_annular_plates
-    else:
-        bottom_annular_plate_thickness = None
-        annular_plate_corroded_thickness_mm = None
-        minimum_width_ia = 0
-        number_of_annular_plates = 0
-        single_annular_plate_volume_m3 = 0
-        total_annular_plate_volume_m3 = 0
+    single_annular_plate_volume_m3 = (
+        annular_plate_width
+        * annular_plate_length
+        * annular_plate_corroded_thickness_mm
+        * 0.001
+    )
+    total_annular_plate_volume_m3 = single_annular_plate_volume_m3 * number_of_annular_plates
 
     tank_area = math.pi * (tank_diameter / 2) ** 2
     bottom_plate_area = bottom_plate_width * bottom_plate_length
@@ -1179,39 +1170,32 @@ def calculate_bottom_cost(inputs, bottom_result):
     shell_bottom_weld_class = "L1"
 
     tank_diameter = inputs["tank_diameter"]
-    _require_non_negative("tank_diameter", tank_diameter)
+    _require_positive("tank_diameter", tank_diameter)
 
     annular_material = bottom_result["annular_plate_material"]
-    sketch_material = bottom_result["bottom_plate_material"]
+    bottom_material = bottom_result["bottom_plate_material"]
 
     annular_density = get_steel_density(annular_material)
-    sketch_density = get_steel_density(sketch_material)
+    bottom_density = get_steel_density(bottom_material)
 
     annular_material_factor = _get_material_price_factor(annular_material)
-    sketch_material_factor = _get_material_price_factor(sketch_material)
+    bottom_material_factor = _get_material_price_factor(bottom_material)
 
     annular_material_cost_per_kg = base_steel_cost_eur_per_kg * annular_material_factor
-    sketch_material_cost_per_kg = base_steel_cost_eur_per_kg * sketch_material_factor
+    bottom_material_cost_per_kg = base_steel_cost_eur_per_kg * bottom_material_factor
 
-    number_of_bottom_plates = (
-        _roundup_excel(
-            math.pi * (tank_diameter / 2) ** 2
-            / (bottom_result["bottom_plate_width"] * bottom_result["bottom_plate_length"]),
-            0,
-        )
-        if tank_diameter > 0
-        else 0
+    number_of_bottom_plates = _roundup_excel(
+        math.pi * (tank_diameter / 2) ** 2
+        / (bottom_result["bottom_plate_width"] * bottom_result["bottom_plate_length"]),
+        0,
     )
 
     annular_plate_thickness = bottom_result["annular_plate_corroded_thickness_mm"]
 
-    if annular_plate_thickness is None:
-        number_of_annular_plates = 0
-    else:
-        number_of_annular_plates = _roundup_excel(
-            (math.pi * tank_diameter) / bottom_result["annular_plate_length"],
-            0,
-        )
+    number_of_annular_plates = _roundup_excel(
+        (math.pi * tank_diameter) / bottom_result["annular_plate_length"],
+        0,
+    )
 
     bottom_plate_width = bottom_result["bottom_plate_width"]
     bottom_plate_length = bottom_result["bottom_plate_length"]
@@ -1226,11 +1210,9 @@ def calculate_bottom_cost(inputs, bottom_result):
         * annular_plate_length
         * annular_plate_thickness
         * 0.001
-        if annular_plate_thickness is not None
-        else 0
     )
 
-    volume_of_sketch_plates = (
+    volume_of_bottom_plates = (
         number_of_bottom_plates
         * bottom_plate_width
         * bottom_plate_length
@@ -1238,24 +1220,24 @@ def calculate_bottom_cost(inputs, bottom_result):
         * 0.001
     )
 
-    cost_of_sketch_plates = sketch_density * sketch_material_cost_per_kg * volume_of_sketch_plates
+    cost_of_bottom_plates = bottom_density * bottom_material_cost_per_kg * volume_of_bottom_plates
     cost_of_annular_plates = annular_density * annular_material_cost_per_kg * volume_of_annular_plates
-    total_material_cost = cost_of_sketch_plates + cost_of_annular_plates
+    total_material_cost = cost_of_bottom_plates + cost_of_annular_plates
 
-    mass_of_sketch_plates_kg = sketch_density * volume_of_sketch_plates
+    mass_of_bottom_plates_kg = bottom_density * volume_of_bottom_plates
     mass_of_annular_plates_kg = annular_density * volume_of_annular_plates
 
-    cutting_cost_sketch_plates = cutting_cost_eur_per_tonne * mass_of_sketch_plates_kg / 1000
+    cutting_cost_bottom_plates = cutting_cost_eur_per_tonne * mass_of_bottom_plates_kg / 1000
     cutting_cost_annular_plates = cutting_cost_eur_per_tonne * mass_of_annular_plates_kg / 1000
 
     shop_hours_annular = shop_hours_bottom_annular_hour_per_tonne * mass_of_annular_plates_kg / 1000
-    shop_hours_sketch = shop_hours_bottom_sketch_hour_per_tonne * mass_of_sketch_plates_kg / 1000
+    shop_hours_bottom = shop_hours_bottom_sketch_hour_per_tonne * mass_of_bottom_plates_kg / 1000
 
-    bottom_shop_hours = shop_hours_annular + shop_hours_sketch
+    bottom_shop_hours = shop_hours_annular + shop_hours_bottom
     bottom_shop_cost = bottom_shop_hours * shop_hourly_rate_eur_per_hour
 
     total_shop_cost = (
-        cutting_cost_sketch_plates
+        cutting_cost_bottom_plates
         + cutting_cost_annular_plates
         + bottom_shop_cost
     )
@@ -1263,32 +1245,16 @@ def calculate_bottom_cost(inputs, bottom_result):
     number_of_anchor_points = _roundup_excel((1 / 3) * math.pi * tank_diameter, 0)
     total_anchor_price = number_of_anchor_points * price_per_anchor_point_eur
 
-    annular_weld_meters = (
-        number_of_annular_plates * annular_plate_width
-        if annular_plate_thickness is not None
-        else 0
-    )
-    annular_time_per_meter = (
-        _xlookup_weld_time_butt(annular_plate_thickness)
-        if annular_plate_thickness is not None
-        else 0
-    )
+    annular_weld_meters = number_of_annular_plates * annular_plate_width
+    annular_time_per_meter = _xlookup_weld_time_butt(annular_plate_thickness)
     annular_welding_factor = _get_welding_factor(annular_weld_class)
     annular_total_welding_time = (
         annular_weld_meters * annular_time_per_meter * annular_welding_factor
     )
 
-    annular_to_bottom_weld_meters = 0 if annular_plate_thickness is None else math.pi * tank_diameter
-    annular_to_bottom_a = (
-        0
-        if annular_plate_thickness is None
-        else _roundup_excel(0.5 * annular_plate_thickness * math.sqrt(2), 0)
-    )
-    annular_to_bottom_time_per_meter = (
-        0
-        if annular_plate_thickness is None
-        else _xlookup_weld_time_lap(annular_to_bottom_a)
-    )
+    annular_to_bottom_weld_meters = math.pi * tank_diameter
+    annular_to_bottom_a = _roundup_excel(0.5 * annular_plate_thickness * math.sqrt(2), 0)
+    annular_to_bottom_time_per_meter = _xlookup_weld_time_lap(annular_to_bottom_a)
     annular_to_bottom_total_welding_time = (
         annular_to_bottom_weld_meters * annular_to_bottom_time_per_meter
     )
@@ -1301,11 +1267,7 @@ def calculate_bottom_cost(inputs, bottom_result):
     bottom_weld_time_per_meter = _xlookup_weld_time_lap(bottom_weld_a)
     bottom_total_welding_time = bottom_weld_meters * bottom_weld_time_per_meter
 
-    if annular_plate_thickness is None:
-        shell_bottom_a = _roundup_excel(0.5 * bottom_plate_thickness * math.sqrt(2), 0)
-    else:
-        shell_bottom_a = _roundup_excel(0.5 * annular_plate_thickness * math.sqrt(2), 0)
-
+    shell_bottom_a = _roundup_excel(0.5 * annular_plate_thickness * math.sqrt(2), 0)
     shell_bottom_time_per_meter = _xlookup_weld_time_lap(shell_bottom_a)
     shell_bottom_factor = _get_welding_factor(shell_bottom_weld_class)
     shell_bottom_total_welding_time = (
@@ -1329,27 +1291,29 @@ def calculate_bottom_cost(inputs, bottom_result):
     )
 
     total_bottom_hours = total_welding_time + bottom_shop_hours
+    total_bottom_site_hours = total_welding_time
+    total_bottom_shop_hours = bottom_shop_hours
 
     return {
         "annular_material_cost_per_kg": annular_material_cost_per_kg,
-        "sketch_material_cost_per_kg": sketch_material_cost_per_kg,
+        "bottom_material_cost_per_kg": bottom_material_cost_per_kg,
         "annular_material_factor": annular_material_factor,
-        "sketch_material_factor": sketch_material_factor,
+        "bottom_material_factor": bottom_material_factor,
         "annular_density": annular_density,
-        "sketch_density": sketch_density,
+        "bottom_density": bottom_density,
         "number_of_bottom_plates": number_of_bottom_plates,
         "number_of_annular_plates": number_of_annular_plates,
         "volume_of_annular_plates": volume_of_annular_plates,
-        "volume_of_sketch_plates": volume_of_sketch_plates,
-        "cost_of_sketch_plates": cost_of_sketch_plates,
+        "volume_of_bottom_plates": volume_of_bottom_plates,
+        "cost_of_bottom_plates": cost_of_bottom_plates,
         "cost_of_annular_plates": cost_of_annular_plates,
         "total_material_cost": total_material_cost,
-        "mass_of_sketch_plates_kg": mass_of_sketch_plates_kg,
-        "cutting_cost_sketch_plates": cutting_cost_sketch_plates,
+        "mass_of_bottom_plates_kg": mass_of_bottom_plates_kg,
+        "cutting_cost_bottom_plates": cutting_cost_bottom_plates,
         "mass_of_annular_plates_kg": mass_of_annular_plates_kg,
         "cutting_cost_annular_plates": cutting_cost_annular_plates,
         "shop_hours_annular": shop_hours_annular,
-        "shop_hours_sketch": shop_hours_sketch,
+        "shop_hours_bottom": shop_hours_bottom,
         "bottom_shop_hours": bottom_shop_hours,
         "bottom_shop_cost": bottom_shop_cost,
         "total_shop_cost": total_shop_cost,
@@ -1375,6 +1339,8 @@ def calculate_bottom_cost(inputs, bottom_result):
         "total_welding_time": total_welding_time,
         "cost_of_welding": cost_of_welding,
         "total_bottom_hours": total_bottom_hours,
+        "total_bottom_site_hours": total_bottom_site_hours,
+        "total_bottom_shop_hours": total_bottom_shop_hours,
         "total_cost": total_cost,
     }
 
@@ -1496,6 +1462,7 @@ def get_wind_girder_dimensions(tank_diameter):
 def calculate_shell_cost(inputs, best_shell, shell_result):
     base_steel_cost_eur_per_kg = 0.85
     welder_hourly_rate_eur_per_hour = 67.7
+    shop_hourly_rate_eur_per_hour = 82.0
     course_manipulation_hours_per_tonne = 4.0
     secondary_ring_shop_hours_per_tonne = 67.0
     top_angle_shop_hours_per_tonne = 43.0
@@ -1663,17 +1630,18 @@ def calculate_shell_cost(inputs, best_shell, shell_result):
         + top_angle_shop_hours
         + secondary_ring_shop_hours
         + total_manipulation_hours
-        + top_angle_lap_weld_hours
     )
 
-    total_shop_cost_eur = total_shop_hours * welder_hourly_rate_eur_per_hour
+    total_shop_cost_eur = total_shop_hours * shop_hourly_rate_eur_per_hour
 
-    total_welding_hours = (
+    total_site_hours = (
         total_circ_weld_hours
         + total_vertical_weld_hours
         + top_angle_lap_weld_hours
         + secondary_ring_site_weld_hours_single * number_of_stiffening_rings
     )
+
+    total_welding_hours = total_site_hours
 
     total_shell_cost_eur = (
         total_material_cost
@@ -1694,6 +1662,7 @@ def calculate_shell_cost(inputs, best_shell, shell_result):
         "total_shop_cost_eur": total_shop_cost_eur,
         "total_shell_weight_kg": total_shell_weight_kg + top_angle_mass_kg + secondary_ring_mass_single_kg * number_of_stiffening_rings,
         "total_welding_hours": total_welding_hours,
+        "total_site_hours": total_site_hours,
         "total_manipulation_hours": total_manipulation_hours,
         "total_shop_hours": total_shop_hours,
         "total_shell_cost_eur": total_shell_cost_eur,
@@ -1792,6 +1761,7 @@ def _normalize_unp_name_for_excel(unp_name):
 def calculate_roof_cost(inputs, roof_result, best_shell):
     base_steel_cost_eur_per_kg = 0.85
     welder_hourly_rate_eur_per_hour = 67.7
+    shop_hourly_rate_eur_per_hour = 82.0
     roof_support_shop_hours_per_kg = 0.01671
     roof_plates_shop_hours_per_tonne = 1.75
     roof_plate_waste_factor = 1.3
@@ -1870,10 +1840,13 @@ def calculate_roof_cost(inputs, roof_result, best_shell):
     crown_ring_bending_cost_eur = 4 * _lookup_crown_bending_cost(crown_ring_type_excel, crown_ring_length_m)
     total_crown_ring_cost_eur = crown_ring_price_no_bending_eur + crown_ring_bending_cost_eur
 
+    crown_ring_mass_kg = crown_ring_length_m * get_unp_profile(roof_result["crown_ring_type"])["mass_kg_m"]
+
     number_of_bracing_sections = bracing["number_of_wind_bracing_sections"]
     bracing_ring_total_length_m = math.pi * tank_diameter / 2 * (number_of_bracing_sections + 1)
     bracing_material_price_per_m = _lookup_section_price_per_m(rafter_type_excel)
     bracing_material_cost_eur = bracing_ring_total_length_m * bracing_material_price_per_m
+    bracing_mass_kg = bracing_ring_total_length_m * rafter["profile"]["mass_kg_m"]
 
     bracing_weld_count = 4 * number_of_rafters * number_of_bracing_sections
     bracing_each_weld_length_m = ipe_width_lookup_mm[rafter_type_excel] * 0.001
@@ -1894,10 +1867,10 @@ def calculate_roof_cost(inputs, roof_result, best_shell):
     roof_plate_weld_cost_eur = roof_plate_weld_hours * welder_hourly_rate_eur_per_hour
 
     roof_plate_shop_hours = roof_plate_mass_kg * roof_plates_shop_hours_per_tonne / 1000
-    roof_plate_shop_cost = roof_plate_shop_hours * welder_hourly_rate_eur_per_hour
+    roof_plate_shop_cost = roof_plate_shop_hours * shop_hourly_rate_eur_per_hour
 
     roof_support_shop_hours = total_rafter_mass_kg * roof_support_shop_hours_per_kg
-    roof_support_shop_cost = roof_support_shop_hours * welder_hourly_rate_eur_per_hour
+    roof_support_shop_cost = roof_support_shop_hours * shop_hourly_rate_eur_per_hour
 
     total_roof_site_hours = (
         roof_shell_weld_hours
@@ -1930,8 +1903,12 @@ def calculate_roof_cost(inputs, roof_result, best_shell):
         + total_roof_shop_cost_eur
     )
 
-    # Fixed: do not double-count roof plate mass.
-    total_roof_weight_kg = roof_plate_mass_kg + total_rafter_mass_kg
+    total_roof_weight_kg = (
+        roof_plate_mass_kg
+        + total_rafter_mass_kg
+        + crown_ring_mass_kg
+        + bracing_mass_kg
+    )
 
     return {
         "roof_plate_count": roof_plate_count,
@@ -1949,11 +1926,13 @@ def calculate_roof_cost(inputs, roof_result, best_shell):
         "rafter_weld_cost_eur": rafter_weld_cost_eur,
         "crown_ring_type": crown_ring_type_excel,
         "crown_ring_length_m": crown_ring_length_m,
+        "crown_ring_mass_kg": crown_ring_mass_kg,
         "crown_ring_price_no_bending_eur": crown_ring_price_no_bending_eur,
         "crown_ring_bending_cost_eur": crown_ring_bending_cost_eur,
         "total_crown_ring_cost_eur": total_crown_ring_cost_eur,
         "number_of_bracing_sections": number_of_bracing_sections,
         "bracing_material_cost_eur": bracing_material_cost_eur,
+        "bracing_mass_kg": bracing_mass_kg,
         "bracing_weld_hours": bracing_weld_hours,
         "bracing_weld_cost_eur": bracing_weld_cost_eur,
         "roof_plate_field_weld_hours": roof_plate_weld_hours,
@@ -1978,8 +1957,8 @@ def calculate_roof_cost(inputs, roof_result, best_shell):
 # ----------------------------
 def calculate_site_erection_cost(inputs, bottom_cost_result, shell_cost_result, roof_cost_result):
     """
-    Python conversion of Excel:
-    Equipment for Site Erection
+    Equipment for Site Erection.
+    Uses site-related hours rather than shop hours.
     """
 
     tank_diameter = inputs["tank_diameter"]
@@ -2001,9 +1980,9 @@ def calculate_site_erection_cost(inputs, bottom_cost_result, shell_cost_result, 
     electrical_equipment_per_week = 1800
     crane_cost_per_hour = 150
 
-    bottom_hours = safe_number(bottom_cost_result.get("total_bottom_hours", 0))
-    shell_hours = safe_number(shell_cost_result.get("total_shop_hours", 0)) if shell_cost_result else 0.0
-    roof_hours = safe_number(roof_cost_result.get("total_roof_shop_hours", 0)) if roof_cost_result else 0.0
+    bottom_hours = safe_number(bottom_cost_result.get("total_bottom_site_hours", 0)) if bottom_cost_result else 0.0
+    shell_hours = safe_number(shell_cost_result.get("total_site_hours", 0)) if shell_cost_result else 0.0
+    roof_hours = safe_number(roof_cost_result.get("total_roof_site_hours", 0)) if roof_cost_result else 0.0
 
     total_weeks_on_site = ((bottom_hours + shell_hours + roof_hours) / (manforce_site_erection * 40)) * 1.25
     hours_working_on_site = total_weeks_on_site * 40
@@ -2096,10 +2075,6 @@ def calculate_site_erection_cost(inputs, bottom_cost_result, shell_cost_result, 
 # NDT Cost
 # ----------------------------
 def calculate_ndt_cost(inputs):
-    """
-    Simple diameter-based NDT allowance.
-    Adjust these bands later if you have exact Excel/source logic.
-    """
     tank_diameter = inputs["tank_diameter"]
     _require_positive("tank_diameter", tank_diameter)
 
@@ -2170,3 +2145,188 @@ def calculate_total_project_cost(
         "accessories_cost_eur": accessories_cost_eur,
         "total_project_cost_eur": total_project_cost_eur,
     }
+
+
+# ----------------------------
+# Main test runner
+# ----------------------------
+def main():
+    inputs = {
+        "tank_diameter": 15,
+        "shell_height": 29,
+        "design_liquid_height": 29,
+        "corrosion_allowance_bottom": 2,
+        "shell_design_n18": 9,
+        "material_type": "Carbon Steel Lap Welded",
+        "design_density_operating": 1.02,
+        "test_density": 1.0,
+        "design_pressure": 10,
+        "test_pressure": 10,
+        "shell_corrosion_allowance": 1,
+        "wind_gust_velocity": 45,
+        "live_loads": 1.25,
+        "snow_loads": 2.5,
+        "insulation_loads": 0.0,
+        "roof_plate_material": "S235JR",
+        "supporting_material": "S235JR",
+        "roof_slope": 0.2,
+        "method_of_erection": "Jacking",
+    }
+
+    bottom_result = calculate_bottom_design(
+        tank_diameter=inputs["tank_diameter"],
+        design_liquid_height=inputs["design_liquid_height"],
+        corrosion_allowance_bottom=inputs["corrosion_allowance_bottom"],
+        shell_design_n18=inputs["shell_design_n18"],
+    )
+
+    bottom_cost_result = calculate_bottom_cost(inputs, bottom_result)
+
+    shell_result = calculate_shell_design(
+        tank_diameter=inputs["tank_diameter"],
+        shell_height=inputs["shell_height"],
+        material_type=inputs["material_type"],
+        design_density_operating=inputs["design_density_operating"],
+        test_density=inputs["test_density"],
+        design_pressure=inputs["design_pressure"],
+        test_pressure=inputs["test_pressure"],
+        shell_corrosion_allowance=inputs["shell_corrosion_allowance"],
+        wind_gust_velocity=inputs["wind_gust_velocity"],
+    )
+
+    best_shell = find_cheapest_shell_material_combination(
+        tank_diameter=inputs["tank_diameter"],
+        shell_height=inputs["shell_height"],
+        material_type=inputs["material_type"],
+        design_density_operating=inputs["design_density_operating"],
+        test_density=inputs["test_density"],
+        design_pressure=inputs["design_pressure"],
+        test_pressure=inputs["test_pressure"],
+        shell_corrosion_allowance=inputs["shell_corrosion_allowance"],
+        wind_gust_velocity=inputs["wind_gust_velocity"],
+        search_mode="two_zone",
+    )
+
+    roof_result = find_lightest_safe_fixed_cone_roof_rafter(
+        tank_diameter=inputs["tank_diameter"],
+        design_pressure=inputs["design_pressure"],
+        live_loads=inputs["live_loads"],
+        snow_loads=inputs["snow_loads"],
+        insulation_loads=inputs["insulation_loads"],
+        roof_slope=inputs["roof_slope"],
+        roof_plate_material=inputs["roof_plate_material"],
+        supporting_material=inputs["supporting_material"],
+    )
+
+    shell_cost_result = None
+    if best_shell is not None:
+        optimized_shell_result = calculate_shell_design(
+            tank_diameter=inputs["tank_diameter"],
+            shell_height=inputs["shell_height"],
+            material_type=inputs["material_type"],
+            design_density_operating=inputs["design_density_operating"],
+            test_density=inputs["test_density"],
+            design_pressure=inputs["design_pressure"],
+            test_pressure=inputs["test_pressure"],
+            shell_corrosion_allowance=inputs["shell_corrosion_allowance"],
+            wind_gust_velocity=inputs["wind_gust_velocity"],
+            shell_materials=best_shell["shell_materials"],
+        )
+
+        shell_cost_result = calculate_shell_cost(
+            inputs=inputs,
+            best_shell=best_shell,
+            shell_result=optimized_shell_result,
+        )
+
+    roof_cost_result = None
+    if best_shell is not None and roof_result["status"] == "SAFE":
+        roof_cost_result = calculate_roof_cost(
+            inputs=inputs,
+            roof_result=roof_result,
+            best_shell=best_shell,
+        )
+
+    site_erection_cost_result = None
+    if shell_cost_result is not None:
+        site_erection_cost_result = calculate_site_erection_cost(
+            inputs=inputs,
+            bottom_cost_result=bottom_cost_result,
+            shell_cost_result=shell_cost_result,
+            roof_cost_result=roof_cost_result,
+        )
+
+    ndt_cost_result = calculate_ndt_cost(inputs)
+
+    total_project_cost_result = calculate_total_project_cost(
+        bottom_cost_result=bottom_cost_result,
+        shell_cost_result=shell_cost_result,
+        roof_cost_result=roof_cost_result,
+        site_erection_cost_result=site_erection_cost_result,
+        ndt_cost_result=ndt_cost_result,
+        accessories_cost_eur=ACCESSORIES_FIXED_COST_EUR,
+    )
+
+    print("BOTTOM DESIGN RESULTS")
+    for key, value in bottom_result.items():
+        print(f"{key}: {value}")
+
+    print("\nSHELL DESIGN RESULTS")
+    for key, value in shell_result.items():
+        print(f"{key}: {value}")
+
+    print("\nOPTIMIZED SHELL RESULT")
+    if best_shell is None:
+        print("No valid design found")
+    else:
+        for key, value in best_shell.items():
+            print(f"{key}: {value}")
+
+    print("\nFIXED CONE ROOF RESULT")
+    for key, value in roof_result.items():
+        if key != "details":
+            print(f"{key}: {value}")
+
+    print("\nBOTTOM COST RESULT")
+    for key, value in bottom_cost_result.items():
+        print(f"{key}: {value}")
+
+    print("\nSHELL COST RESULT")
+    if shell_cost_result is None:
+        print("No valid shell cost result")
+    else:
+        for key, value in shell_cost_result.items():
+            if key != "courses":
+                print(f"{key}: {value}")
+
+        print("\nSHELL COST PER COURSE")
+        for row in shell_cost_result["courses"]:
+            print(row)
+
+    print("\nROOF COST RESULT")
+    if roof_cost_result is None:
+        print("No valid roof cost result")
+    else:
+        for key, value in roof_cost_result.items():
+            print(f"{key}: {value}")
+
+    print("\nSITE ERECTION COST RESULT")
+    if site_erection_cost_result is None:
+        print("No valid site erection cost result")
+    else:
+        for key, value in site_erection_cost_result.items():
+            print(f"{key}: {value}")
+
+    print("\nNDT COST RESULT")
+    for key, value in ndt_cost_result.items():
+        print(f"{key}: {value}")
+
+    print("\nACCESSORIES COST")
+    print(ACCESSORIES_FIXED_COST_EUR)
+
+    print("\nTOTAL PROJECT COST")
+    print(total_project_cost_result["total_project_cost_eur"])
+
+
+if __name__ == "__main__":
+    main()

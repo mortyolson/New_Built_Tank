@@ -1,3 +1,5 @@
+# backend_data.py
+
 MATERIALS = {
     "S235JR": {"density": 7850, "yield": 235},
     "S235JO": {"density": 7850, "yield": 235},
@@ -225,7 +227,7 @@ def get_unp_profile(profile_name: str) -> dict:
 
 
 def get_youngs_modulus_mpa(material_name=None) -> float:
-    return 210000
+    return 210000.0
 
 
 def get_crown_ring_for_rafter(ipe_name: str) -> str:

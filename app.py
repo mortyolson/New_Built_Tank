@@ -1,4 +1,7 @@
+import io
 import os
+import textwrap
+
 import pandas as pd
 import streamlit as st
 from reportlab.lib import colors
@@ -21,33 +24,104 @@ from main import (
     find_lightest_safe_fixed_cone_roof_rafter,
 )
 
-st.set_page_config(page_title="Storage Tank Cost Estimate", layout="wide")
+st.set_page_config(
+    page_title="Cost Estimate for New Build Storage Tanks",
+    layout="wide",
+)
 
 st.markdown(
     """
     <style>
     .main > div { padding-top: 1.1rem; }
+
     div[data-testid="stDataFrame"] {
-        border: 1px solid #d9d9d9; padding: 6px; background-color: white; border-radius: 10px;
+        border: 1px solid #d9d9d9;
+        padding: 6px;
+        background-color: white;
+        border-radius: 10px;
     }
+
     div[data-testid="stDownloadButton"] > button {
         background: linear-gradient(90deg, #F37021 0%, #E85D04 100%);
-        color: white; border: none; border-radius: 10px; font-weight: 700; padding: 0.8rem 1rem;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        font-weight: 700;
+        padding: 0.80rem 1rem;
+        font-size: 15px;
+        box-shadow: 0 4px 12px rgba(243,112,33,0.28);
     }
+
+    div[data-testid="stDownloadButton"] > button:hover {
+        background: linear-gradient(90deg, #d85a12 0%, #c94f00 100%);
+        color: white;
+    }
+
+    div[data-testid="stButton"] > button {
+        border-radius: 10px;
+    }
+
     .metric-card {
-        border: 1px solid #e5e7eb; background: white; padding: 18px; border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-top: 4px solid #1F4E79; margin-bottom: 10px;
+        border: 1px solid #e5e7eb;
+        background: white;
+        padding: 18px;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        border-top: 4px solid #1F4E79;
+        margin-bottom: 10px;
+        min-height: 118px;
     }
-    .metric-label { font-size: 12px; color: #667085; margin-bottom: 7px; text-transform: uppercase; font-weight: 700; }
-    .metric-value { font-size: 24px; font-weight: 800; color: #163a5a; line-height: 1.15; }
-    .metric-sub { font-size: 12px; color: #777; margin-top: 6px; line-height: 1.35; }
-    .section-card { border: 1px solid #dfe5eb; border-radius: 12px; padding: 14px; background: white;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 10px; }
-    .section-title { font-size: 18px; font-weight: 800; color: #1F4E79; margin-bottom: 8px; }
+
+    .metric-label {
+        font-size: 12px;
+        color: #667085;
+        margin-bottom: 7px;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        font-weight: 700;
+    }
+
+    .metric-value {
+        font-size: 24px;
+        font-weight: 800;
+        color: #163a5a;
+        line-height: 1.15;
+    }
+
+    .metric-sub {
+        font-size: 12px;
+        color: #777;
+        margin-top: 6px;
+        line-height: 1.35;
+    }
+
+    .section-card {
+        border: 1px solid #dfe5eb;
+        border-radius: 12px;
+        padding: 14px;
+        background: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        margin-bottom: 10px;
+    }
+
+    .section-title {
+        font-size: 18px;
+        font-weight: 800;
+        color: #1F4E79;
+        margin-bottom: 8px;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+# ----------------------------
+# Helpers
+# ----------------------------
+def html_block(html: str):
+    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
+
 
 def val(x):
     if x is None or x == "":
@@ -56,48 +130,79 @@ def val(x):
         return round(x, 2)
     return x
 
+
 def safe_get(dct, key, default="N/A"):
     if dct is None:
         return default
     return dct.get(key, default)
+
+
+def safe_num(dct, key, default=0.0):
+    if dct is None:
+        return default
+    try:
+        value = dct.get(key, default)
+        if value in (None, "N/A", ""):
+            return default
+        return float(value)
+    except (TypeError, ValueError, AttributeError):
+        return default
+
 
 def fmt_eur(x):
     if x is None or x == "N/A":
         return "N/A"
     return f"€ {x:,.2f}"
 
+
 def fmt_tonnes(x):
     if x is None or x == "N/A":
         return "N/A"
     return f"{x:,.2f} t"
+
 
 def fmt_hours(x):
     if x is None or x == "N/A":
         return "N/A"
     return f"{x:,.2f} h"
 
+
 def metric_card(label, value, subtext=""):
-    st.markdown(
+    html_block(
         f"""
         <div class="metric-card">
             <div class="metric-label">{label}</div>
             <div class="metric-value">{value}</div>
             <div class="metric-sub">{subtext}</div>
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
+
 def section_card_title(title):
-    st.markdown(
+    html_block(
         f"""
         <div class="section-card">
             <div class="section-title">{title}</div>
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
+
+def safe_sum(*values):
+    total = 0.0
+    for v in values:
+        try:
+            if v is not None and v != "N/A":
+                total += float(v)
+        except Exception:
+            pass
+    return total
+
+
+# ----------------------------
+# Cached calculations
+# ----------------------------
 @st.cache_data
 def run_bottom_design(inputs):
     return calculate_bottom_design(
@@ -107,9 +212,11 @@ def run_bottom_design(inputs):
         shell_design_n18=inputs["shell_design_n18"],
     )
 
+
 @st.cache_data
 def run_bottom_cost(inputs, bottom_result):
     return calculate_bottom_cost(inputs, bottom_result)
+
 
 @st.cache_data
 def run_shell_optimizer(inputs):
@@ -125,6 +232,7 @@ def run_shell_optimizer(inputs):
         wind_gust_velocity=inputs["wind_gust_velocity"],
         search_mode=inputs["shell_search_mode"],
     )
+
 
 @st.cache_data
 def run_shell_cost(inputs, best_shell):
@@ -149,8 +257,8 @@ def run_shell_cost(inputs, best_shell):
         best_shell=best_shell,
         shell_result=optimized_shell_result,
     )
-
     return optimized_shell_result, shell_cost_result
+
 
 @st.cache_data
 def run_roof_optimizer(inputs):
@@ -165,6 +273,7 @@ def run_roof_optimizer(inputs):
         supporting_material=inputs["supporting_material"],
     )
 
+
 @st.cache_data
 def run_roof_cost(inputs, roof_result, best_shell):
     if roof_result is None or best_shell is None:
@@ -174,20 +283,38 @@ def run_roof_cost(inputs, roof_result, best_shell):
     if "details" not in roof_result:
         return None
 
-    return calculate_roof_cost(inputs=inputs, roof_result=roof_result, best_shell=best_shell)
+    return calculate_roof_cost(
+        inputs=inputs,
+        roof_result=roof_result,
+        best_shell=best_shell,
+    )
+
 
 @st.cache_data
 def run_site_erection_cost(inputs, bottom_cost_result, shell_cost_result, roof_cost_result):
     if shell_cost_result is None:
         return None
-    return calculate_site_erection_cost(inputs, bottom_cost_result, shell_cost_result, roof_cost_result)
+    return calculate_site_erection_cost(
+        inputs=inputs,
+        bottom_cost_result=bottom_cost_result,
+        shell_cost_result=shell_cost_result,
+        roof_cost_result=roof_cost_result,
+    )
+
 
 @st.cache_data
 def run_ndt_cost(inputs):
     return calculate_ndt_cost(inputs)
 
+
 @st.cache_data
-def run_total_project_cost(bottom_cost_result, shell_cost_result, roof_cost_result, site_erection_cost_result, ndt_cost_result):
+def run_total_project_cost(
+    bottom_cost_result,
+    shell_cost_result,
+    roof_cost_result,
+    site_erection_cost_result,
+    ndt_cost_result,
+):
     return calculate_total_project_cost(
         bottom_cost_result=bottom_cost_result,
         shell_cost_result=shell_cost_result,
@@ -197,17 +324,86 @@ def run_total_project_cost(bottom_cost_result, shell_cost_result, roof_cost_resu
         accessories_cost_eur=ACCESSORIES_FIXED_COST_EUR,
     )
 
-def generate_pdf(inputs, bottom_result, bottom_cost_result, best_shell, shell_cost_result, roof_result, roof_cost_result, site_erection_cost_result, ndt_cost_result, total_project_cost_result, logo_path="verwater_logo.png"):
-    import io
 
+# ----------------------------
+# PDF generation
+# ----------------------------
+def generate_pdf(
+    inputs,
+    bottom_result,
+    bottom_cost_result,
+    best_shell,
+    shell_cost_result,
+    roof_result,
+    roof_cost_result,
+    site_erection_cost_result,
+    ndt_cost_result,
+    total_project_cost_result,
+    logo_path="verwater_logo.png",
+):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=10, rightMargin=10, topMargin=10, bottomMargin=10)
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=12,
+        rightMargin=12,
+        topMargin=12,
+        bottomMargin=12,
+    )
+
     styles = getSampleStyleSheet()
 
-    title_style = ParagraphStyle("title_style", parent=styles["Normal"], fontName="Helvetica-BoldOblique", fontSize=10.5, leading=10.8, alignment=TA_LEFT)
-    normal_style = ParagraphStyle("normal_style", parent=styles["Normal"], fontName="Helvetica", fontSize=6.1, leading=6.6, alignment=TA_LEFT)
-    centered_bold_style = ParagraphStyle("centered_bold_style", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=6.1, leading=6.6, alignment=TA_CENTER)
-    section_style = ParagraphStyle("section_style", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.0, leading=7.2, alignment=TA_LEFT)
+    title_style = ParagraphStyle(
+        "title_style",
+        parent=styles["Normal"],
+        fontName="Helvetica-BoldOblique",
+        fontSize=10.5,
+        leading=10.8,
+        alignment=TA_LEFT,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
+    normal_style = ParagraphStyle(
+        "normal_style",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=6.1,
+        leading=6.6,
+        alignment=TA_LEFT,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
+    tiny_style = ParagraphStyle(
+        "tiny_style",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=5.5,
+        leading=5.8,
+        alignment=TA_LEFT,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
+    centered_bold_style = ParagraphStyle(
+        "centered_bold_style",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=6.1,
+        leading=6.6,
+        alignment=TA_CENTER,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
+    section_style = ParagraphStyle(
+        "section_style",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7.0,
+        leading=7.2,
+        alignment=TA_LEFT,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
 
     blue = colors.HexColor("#1F4E79")
 
@@ -224,101 +420,264 @@ def generate_pdf(inputs, bottom_result, bottom_cost_result, best_shell, shell_co
 
     elements = []
 
-    logo = p("<b>VERWATER</b>", title_style)
+    total_annular_mass = safe_num(bottom_result, "total_annular_plate_mass_kg", 0)
+    total_bottom_mass = safe_num(bottom_result, "total_bottom_plate_mass_kg", 0)
+    bottom_weight_t = safe_sum(total_annular_mass, total_bottom_mass) / 1000.0
+
+    shell_weight_t = safe_num(shell_cost_result, "total_shell_weight_kg", 0) / 1000.0
+    roof_weight_t = safe_num(roof_cost_result, "total_roof_weight_kg", 0) / 1000.0
+    final_weight_t = bottom_weight_t + shell_weight_t + roof_weight_t
+
+    shell_materials = best_shell.get("shell_materials", []) if best_shell else []
+    shell_course_count = len(shell_materials)
+    shell_course_height = round(inputs["shell_height"] / shell_course_count, 1) if shell_course_count else "N/A"
+
+    roof_rafter = val(safe_get(roof_result, "rafter_type"))
+    annular_thk = val(safe_get(bottom_result, "annular_plate_corroded_thickness_mm"))
+    annular_mat = val(safe_get(bottom_result, "annular_plate_material"))
+    bottom_thk = val(safe_get(bottom_result, "minimum_nominal_bottom_plate_thickness"))
+    bottom_mat = val(safe_get(bottom_result, "bottom_plate_material"))
+
+    shell_primary_ring = (
+        "Not Required"
+        if safe_get(shell_cost_result, "number_of_stiffening_rings", 0) in [0, "N/A", None]
+        else safe_get(shell_cost_result, "number_of_stiffening_rings")
+    )
+
+    live_roof_load = safe_sum(
+        inputs.get("live_loads", 0),
+        inputs.get("snow_loads", 0),
+        inputs.get("insulation_loads", 0),
+    )
+
     if os.path.exists(logo_path):
         try:
             logo = Image(logo_path, width=110, height=16)
         except Exception:
-            pass
+            logo = p("<b>VERWATER</b>", title_style)
+    else:
+        logo = p("<b>VERWATER</b>", title_style)
 
     header_rows = [
         [p("<b><i>Techno-Economical Specification</i></b>", title_style), logo],
-        [p("Storage tank preliminary estimate", normal_style), ""],
+        [p("<i>Thank you for considering Verwater, ENSURING SAFETY QUALITY & EXCELLENCE</i>", normal_style), ""],
+        [p("requested. For more information, please contact <b>sales@verwater.com</b> and/or <b>e.slager@verwater.com</b>", normal_style), ""],
+        [p("<i>Client:</i>", normal_style), p("<i>Project:</i>", normal_style)],
+        [p("<i>RFQ:</i>", normal_style), p("<i>Date:</i>", normal_style)],
     ]
-    header_table = Table(header_rows, colWidths=[260, 220])
-    header_table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.55, colors.black),
-        ("SPAN", (0, 1), (1, 1)),
-        ("LINEABOVE", (0, 0), (-1, 0), 1.0, blue),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
+    header_table = Table(header_rows, colWidths=[245, 245], rowHeights=[20, 12, 16, 12, 12])
+    header_table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.55, colors.black),
+                ("SPAN", (0, 1), (1, 1)),
+                ("SPAN", (0, 2), (1, 2)),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 1),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+                ("LINEABOVE", (0, 0), (-1, 0), 1.0, blue),
+                ("ALIGN", (1, 0), (1, 0), "CENTER"),
+            ]
+        )
+    )
     elements.append(header_table)
 
-    total = safe_get(total_project_cost_result, "total_project_cost_eur", 0)
-    bottom = safe_get(bottom_cost_result, "total_cost", 0)
-    shell = safe_get(shell_cost_result, "total_shell_cost_eur", 0)
-    roof = safe_get(roof_cost_result, "total_roof_cost_eur", 0)
-    site = safe_get(site_erection_cost_result, "total_site_related_costs", 0)
-    ndt = safe_get(ndt_cost_result, "total_ndt_cost_eur", 0)
-
-    summary_rows = [
-        [p("<b>SUMMARY</b>", section_style), "", ""],
-        [p("Bottom cost"), p(fmt_num(bottom, 2), centered_bold_style), p("EUR", centered_bold_style)],
-        [p("Shell cost"), p(fmt_num(shell, 2), centered_bold_style), p("EUR", centered_bold_style)],
-        [p("Roof cost"), p(fmt_num(roof, 2), centered_bold_style), p("EUR", centered_bold_style)],
-        [p("Site erection"), p(fmt_num(site, 2), centered_bold_style), p("EUR", centered_bold_style)],
-        [p("NDT"), p(fmt_num(ndt, 2), centered_bold_style), p("EUR", centered_bold_style)],
-        [p("Accessories"), p(fmt_num(ACCESSORIES_FIXED_COST_EUR, 2), centered_bold_style), p("EUR", centered_bold_style)],
-        [p("<b>Total project cost</b>"), p(f"<b>{fmt_num(total, 2)}</b>", centered_bold_style), p("<b>EUR</b>", centered_bold_style)],
+    final_rows = [
+        [p("<b>FINAL CONSIDERATIONS</b>", section_style), "", ""],
+        [
+            p('<font color="#F37021"><b>Final Price of the Storage Tank*</b></font>', normal_style),
+            p(
+                f'<font color="#F37021"><b>{fmt_num(safe_get(total_project_cost_result, "total_project_cost_eur"), 0)}</b></font>',
+                centered_bold_style,
+            ),
+            p('<font color="#F37021"><b>Euros</b></font>', centered_bold_style),
+        ],
+        [
+            p("Final Weight of the Tank", normal_style),
+            p(f"{fmt_num(final_weight_t, 0)}", centered_bold_style),
+            p("Tonnes", centered_bold_style),
+        ],
+        [
+            p(
+                "'Disclosure. Certain items have not been included in the pricing calculation of the storage tank. "
+                'This is a "quick and dirty" price estimate with a deviation of +/- 15% from the actual price of the storage tank. '
+                "Travelling costs are not included in the estimate, together with out of the ordinary expenses "
+                "(Civil, Piping, E&I, Detection). The Design is based on the EN 14015",
+                tiny_style,
+            ),
+            "",
+            "",
+        ],
     ]
-    summary_table = Table(summary_rows, colWidths=[240, 140, 100])
-    summary_table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.55, colors.black),
-        ("SPAN", (0, 0), (-1, 0)),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
-    elements.append(summary_table)
+    final_table = Table(final_rows, colWidths=[175, 160, 155], rowHeights=[14, 14, 14, 30])
+    final_table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.55, colors.black),
+                ("SPAN", (0, 0), (-1, 0)),
+                ("SPAN", (0, 3), (-1, 3)),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 1),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+            ]
+        )
+    )
+    elements.append(final_table)
+
+    prelim_rows = [
+        [p("<b>PRELIMINARY DESIGN CONDITIONS**</b>", section_style), "", "", ""],
+        [p("Diameter of the tank (m)"), p(val(inputs["tank_diameter"])), p("Erection Method"), p(val(inputs["method_of_erection"]))],
+        [p("Maximum design Liquid Height (m)"), p(val(inputs["design_liquid_height"])), p("Accessories"), p("Standard")],
+        [p("Shell height (m)"), p(val(inputs["shell_height"])), p("Annular Plate thickness (Bottom) (mm)"), p(annular_thk)],
+        [p("Design Code"), p("EN14015 : 2004"), p("Annular Plate Material (Bottom)"), p(annular_mat)],
+        [p("Design pressure (mbar)"), p(val(inputs["design_pressure"])), p("Bottom Plate thickness (mm)"), p(bottom_thk)],
+        [p("Design Vacuum (mbar)"), p(val(inputs["design_internal_negative_pressure"])), p("Bottom Plate Material"), p(bottom_mat)],
+        [p("MDMT (DegC)"), p(val(inputs["mdmt"])), p("Shell Course Height (m)"), p(val(shell_course_height))],
+        [p("Design Specific Gravity (kg/l)"), p(val(inputs["design_density_operating"])), p("Shell Course Number"), p(val(shell_course_count))],
+        [p("Design Specific Gravity (Hydrotest) (kg/l)"), p(val(inputs["test_density"])), p("Number of Secondary Wind Girder(s)"), p(val(safe_get(shell_cost_result, "number_of_stiffening_rings", 0)))],
+        [p("Corrosion allowance Bottom (mm)"), p(val(inputs["corrosion_allowance_bottom"])), p("Primary Stiffening Ring"), p(val(shell_primary_ring))],
+        [p("Corrosion Allowance Shell (mm)"), p(val(inputs["shell_corrosion_allowance"])), p("Top Angle"), p("S355JR")],
+        [p("Corrosion Allowance Roof (mm)"), p(val(inputs["corrosion_allowance_roof"])), p("Anchorage Requirement"), p("Anchorage Required")],
+        [p("Windspeed (m/s)"), p(val(inputs["wind_gust_velocity"])), p("Number of Anchors"), p(val(safe_get(bottom_cost_result, "number_of_anchor_points")))],
+        [p("Seismic Design"), p("Not Applicable"), p("Live Roof Load (kN/m²)"), p(val(live_roof_load))],
+        [p("Roof Type"), p(val(inputs["roof_type"])), p("Roof Supp. Structure Material"), p(val(inputs["supporting_material"]))],
+        [p("NDT according to EN 14015"), p("Included"), p("Roof Plates Material"), p(val(inputs["roof_plate_material"]))],
+        [p("Painting"), p("Included"), p("Roof rafter Type"), p(roof_rafter)],
+        [p(""), p(""), p("Roof Slope"), p(val(inputs["roof_slope"]))],
+        [p("The design can be subject to change if the detailed engineering differs", tiny_style), "", "", ""],
+    ]
+    prelim_table = Table(prelim_rows, colWidths=[185, 70, 155, 80], rowHeights=[14] + [12] * 18 + [12])
+    prelim_table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.55, colors.black),
+                ("SPAN", (0, 0), (-1, 0)),
+                ("SPAN", (0, 19), (-1, 19)),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 1),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+            ]
+        )
+    )
+    elements.append(prelim_table)
+
+    cost_rows = [
+        [p("<b>COST CONSIDERATIONS</b>", section_style), "", "", ""],
+        [p("Engineering Hourly Cost (/hr)"), p("82"), p("Shop Manforce"), p("3")],
+        [p("Welders Hourly Cost (/hr)"), p("67.7"), p("Site Manforce"), p("8")],
+        [p("Electricity price (kWh/hr)"), p("0.33"), p("Coefficient for workers (Shop and Site)"), p("1.1")],
+    ]
+    cost_table = Table(cost_rows, colWidths=[185, 70, 155, 80], rowHeights=[14, 12, 12, 12])
+    cost_table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.55, colors.black),
+                ("SPAN", (0, 0), (-1, 0)),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 1),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+            ]
+        )
+    )
+    elements.append(cost_table)
+
+    ass_rows = [
+        [p("<b>ASSUMPTIONS AND CONSIDERATIONS</b>", section_style)],
+        [p("a. In case of a lump sum second tank, the engineering pricing of the second tank will only be 25% of the first.", tiny_style)],
+        [p("b. As aforementioned, this is a budget model price, and deviates by 15% in excess or deficit of the true tank price, which will be calculated following the confirmation of the project.", tiny_style)],
+        [p("c. Verwater B.V has a Silver EcoVadis sustainability rating (Top 15%) making sustainability, one of our priorities", tiny_style)],
+    ]
+    ass_table = Table(ass_rows, colWidths=[490], rowHeights=[14, 12, 18, 12])
+    ass_table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.55, colors.black),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 1),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+            ]
+        )
+    )
+    elements.append(ass_table)
 
     doc.build(elements)
-    buffer.seek(0)
-    return buffer
+    return buffer.getvalue()
 
+
+# ----------------------------
+# Sidebar inputs
+# ----------------------------
 with st.sidebar:
     st.header("Primary Input Parameters")
+
     tank_diameter = st.number_input("Diameter of the tank (m)", min_value=0.1, value=15.0, step=0.1)
-    material_type = st.selectbox("Material type", ["Carbon Steel Lap Welded", "Carbon Steel Butt Welded", "Stainless Steel Lap Welded"], index=0)
+    material_type = st.selectbox(
+        "Material type",
+        ["Carbon Steel Lap Welded", "Carbon Steel Butt Welded", "Stainless Steel Lap Welded"],
+        index=0,
+    )
     design_liquid_height = st.number_input("Maximum design liquid height (m)", min_value=0.1, value=29.0, step=0.1)
     shell_height = st.number_input("Shell height (m)", min_value=0.1, value=29.0, step=0.1)
-    liquid_temperature = st.number_input("Temperature of the contained liquid (°C)", value=25.0, step=1.0)
-    liquid_stored = st.text_input("Liquid stored", value="1-Decanol")
-    design_density_operating = st.number_input("Maximum design density of contained liquid under storage conditions (kg/l)", min_value=0.0, value=1.02, step=0.01)
-    test_density = st.number_input("Maximum design density of test medium (kg/l)", min_value=0.0, value=1.00, step=0.01)
+
+    design_density_operating = st.number_input(
+        "Maximum design density of contained liquid under storage conditions (kg/l)",
+        min_value=0.0,
+        value=1.02,
+        step=0.01,
+    )
+    test_density = st.number_input(
+        "Maximum design density of test medium (kg/l)",
+        min_value=0.0,
+        value=1.00,
+        step=0.01,
+    )
     design_internal_negative_pressure = st.number_input("Design internal negative pressure (mBar)", value=5.0, step=1.0)
     test_pressure = st.number_input("Test pressure (mBar)", value=10.0, step=1.0)
     design_pressure = st.number_input("Design pressure (mBar)", value=10.0, step=1.0)
+
     roof_type = st.selectbox("Roof type", ["Cone"], index=0)
-    roof_plate_material = st.selectbox("Roof plate material", ["S235JR", "S355JR"], index=0)
-    supporting_material = st.selectbox("Supporting material", ["S235JR", "S355JR"], index=0)
-    roof_slope = st.number_input("Roof slope", min_value=0.01, value=0.20, step=0.01)
+
     corrosion_allowance_bottom = st.number_input("Corrosion Allowance Bottom (mm)", min_value=0.0, value=2.0, step=1.0)
     shell_corrosion_allowance = st.number_input("Corrosion Allowance Shell (mm)", min_value=0.0, value=1.0, step=1.0)
     corrosion_allowance_roof = st.number_input("Corrosion Allowance Roof (mm)", min_value=0.0, value=0.0, step=1.0)
+
     wind_gust_velocity = st.number_input("Wind gust velocity (m/s)", min_value=0.1, value=45.0, step=1.0)
     live_loads = st.number_input("Live Loads (kN/m²)", min_value=0.0, value=1.25, step=0.05)
     snow_loads = st.number_input("Snow Loads (kN/m²)", min_value=0.0, value=2.5, step=0.1)
     insulation_loads = st.number_input("Insulation Loads (kN/m²)", min_value=0.0, value=0.0, step=0.1)
+
     mdmt = st.number_input("MDMT (°C)", value=-10.0, step=1.0)
     max_temp = st.number_input("Max Temp (°C)", value=50.0, step=1.0)
     method_of_erection = st.selectbox("Method of erection", ["Jacking", "Stacking"], index=0)
-    shell_design_n18 = st.number_input("Shell design N18", min_value=0.0, value=9.0, step=1.0)
-    shell_search_mode = st.selectbox("Shell optimization mode", ["two_zone", "uniform", "full"], index=0)
 
 inputs = {
     "tank_diameter": tank_diameter,
     "material_type": material_type,
     "design_liquid_height": design_liquid_height,
     "shell_height": shell_height,
-    "liquid_temperature": liquid_temperature,
-    "liquid_stored": liquid_stored,
+    "liquid_temperature": 25.0,
+    "liquid_stored": "N/A",
+    "roof_plate_material": "S235JR",
+    "supporting_material": "S235JR",
+    "roof_slope": 0.20,
+    "shell_design_n18": 9.0,
+    "shell_search_mode": "two_zone",
     "design_density_operating": design_density_operating,
     "test_density": test_density,
     "design_internal_negative_pressure": design_internal_negative_pressure,
     "test_pressure": test_pressure,
     "design_pressure": design_pressure,
     "roof_type": roof_type,
-    "roof_plate_material": roof_plate_material,
-    "supporting_material": supporting_material,
-    "roof_slope": roof_slope,
     "corrosion_allowance_bottom": corrosion_allowance_bottom,
     "shell_corrosion_allowance": shell_corrosion_allowance,
     "corrosion_allowance_roof": corrosion_allowance_roof,
@@ -329,9 +688,23 @@ inputs = {
     "mdmt": mdmt,
     "max_temp": max_temp,
     "method_of_erection": method_of_erection,
-    "shell_design_n18": shell_design_n18,
-    "shell_search_mode": shell_search_mode,
 }
+
+
+# ----------------------------
+# Run calculations
+# ----------------------------
+bottom_result = None
+bottom_cost_result = None
+best_shell = None
+optimized_shell_result = None
+shell_cost_result = None
+roof_result = None
+roof_cost_result = None
+site_erection_cost_result = None
+ndt_cost_result = None
+total_project_cost_result = None
+pdf_file_bytes = None
 
 try:
     bottom_result = run_bottom_design(inputs)
@@ -342,121 +715,199 @@ try:
     roof_cost_result = run_roof_cost(inputs, roof_result, best_shell)
     site_erection_cost_result = run_site_erection_cost(inputs, bottom_cost_result, shell_cost_result, roof_cost_result)
     ndt_cost_result = run_ndt_cost(inputs)
-    total_project_cost_result = run_total_project_cost(bottom_cost_result, shell_cost_result, roof_cost_result, site_erection_cost_result, ndt_cost_result)
+    total_project_cost_result = run_total_project_cost(
+        bottom_cost_result,
+        shell_cost_result,
+        roof_cost_result,
+        site_erection_cost_result,
+        ndt_cost_result,
+    )
 except ValueError as e:
     st.error(f"Input error: {e}")
     st.stop()
 except Exception as e:
-    st.error(f"Unexpected error: {e}")
+    st.error(f"Unexpected error during calculations: {e}")
     st.stop()
 
-pdf_file = None
-if best_shell is not None:
-    pdf_file = generate_pdf(
-        inputs=inputs,
-        bottom_result=bottom_result,
-        bottom_cost_result=bottom_cost_result,
-        best_shell=best_shell,
-        shell_cost_result=shell_cost_result,
-        roof_result=roof_result,
-        roof_cost_result=roof_cost_result,
-        site_erection_cost_result=site_erection_cost_result,
-        ndt_cost_result=ndt_cost_result,
-        total_project_cost_result=total_project_cost_result,
-    )
+if all(
+    [
+        best_shell is not None,
+        bottom_result is not None,
+        bottom_cost_result is not None,
+        total_project_cost_result is not None,
+    ]
+):
+    try:
+        pdf_file_bytes = generate_pdf(
+            inputs=inputs,
+            bottom_result=bottom_result,
+            bottom_cost_result=bottom_cost_result,
+            best_shell=best_shell,
+            shell_cost_result=shell_cost_result,
+            roof_result=roof_result,
+            roof_cost_result=roof_cost_result,
+            site_erection_cost_result=site_erection_cost_result,
+            ndt_cost_result=ndt_cost_result,
+            total_project_cost_result=total_project_cost_result,
+        )
+        st.session_state["pdf_file_bytes"] = pdf_file_bytes
+    except Exception as e:
+        st.warning(f"PDF generation failed: {e}")
+        pdf_file_bytes = None
 
+
+# ----------------------------
+# Top header
+# ----------------------------
 header_left, header_center, header_right = st.columns([5, 2.2, 1.8])
 
 with header_left:
-    st.markdown(
-        """
-        <div style="background: linear-gradient(90deg, #143A5C 0%, #2E679B 100%); padding: 26px 28px 20px 28px;
-                    border-radius: 14px; color: white; min-height: 122px;">
-            <div style="font-size: 34px; font-weight: 800; line-height: 1.15; margin-bottom: 10px;">
-                Cost Estimate for New Build Storage Tanks
-            </div>
-            <div style="font-size: 15px; opacity: 0.92; line-height: 1.4;">
-                Verwater — Engineering Cost Estimation Tool
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.markdown("## Cost Estimate for New Build Storage Tanks")
+    st.caption("Verwater — Engineering Cost Estimation Tool")
+    st.caption(
+        "Preliminary techno-economical estimate for bottom, shell, fixed cone roof, "
+        "site erection and related project costs."
     )
 
 with header_center:
-    if pdf_file is not None:
+    html_block("<div style='padding-top: 8px;'></div>")
+
+    if st.session_state.get("pdf_file_bytes"):
         st.download_button(
             label="Download PDF Report",
-            data=pdf_file,
+            data=st.session_state["pdf_file_bytes"],
             file_name="Verwater_Techno_Economical_Specification.pdf",
             mime="application/pdf",
             use_container_width=True,
+            key="download_pdf_report",
         )
     else:
-        st.button("Download PDF Report", disabled=True, use_container_width=True)
+        st.button(
+            "Download PDF Report",
+            disabled=True,
+            use_container_width=True,
+            key="download_pdf_report_disabled",
+        )
+
+    html_block(
+        """
+        <div style="
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 8px;
+            line-height: 1.35;
+        ">
+            Export the latest techno-economical specification in client-ready format.
+        </div>
+        """
+    )
 
 with header_right:
+    html_block("<div style='padding-top: 10px; text-align: center;'></div>")
+
     if os.path.exists("verwater_logo.png"):
         st.image("verwater_logo.png", use_container_width=True)
     else:
-        st.markdown("<div style='font-weight:700;color:#1F4E79;font-size:28px;'>VERWATER</div>", unsafe_allow_html=True)
+        html_block(
+            "<div style='font-weight:700;color:#1F4E79;font-size:28px;'>VERWATER</div>"
+        )
 
 st.markdown("<hr style='margin-top:12px;margin-bottom:20px;'>", unsafe_allow_html=True)
 st.caption("All values are indicative and based on preliminary engineering assumptions.")
 
-total_annular_mass = safe_get(bottom_result, "total_annular_plate_mass_kg", 0)
-total_bottom_mass = safe_get(bottom_result, "total_bottom_plate_mass_kg", 0)
-bottom_weight_tonnes = ((total_annular_mass or 0) + (total_bottom_mass or 0)) / 1000
+
+# ----------------------------
+# Derived display values
+# ----------------------------
+total_annular_mass = safe_num(bottom_result, "total_annular_plate_mass_kg", 0)
+total_bottom_mass = safe_num(bottom_result, "total_bottom_plate_mass_kg", 0)
+bottom_weight_tonnes = (total_annular_mass + total_bottom_mass) / 1000
+shell_weight_tonnes = safe_num(shell_cost_result, "total_shell_weight_kg", 0) / 1000
+roof_weight_tonnes = safe_num(roof_cost_result, "total_roof_weight_kg", 0) / 1000
+total_tank_weight_tonnes = bottom_weight_tonnes + shell_weight_tonnes + roof_weight_tonnes
 
 other_cost_eur = (
-    safe_get(site_erection_cost_result, "total_site_related_costs", 0)
-    + safe_get(ndt_cost_result, "total_ndt_cost_eur", 0)
+    safe_num(site_erection_cost_result, "total_site_related_costs", 0)
+    + safe_num(ndt_cost_result, "total_ndt_cost_eur", 0)
     + ACCESSORIES_FIXED_COST_EUR
 )
 
-k1, k2, k3, k4 = st.columns(4)
-with k1:
-    metric_card("Bottom Cost", fmt_eur(safe_get(bottom_cost_result, "total_cost")))
-with k2:
-    metric_card("Shell Cost", fmt_eur(safe_get(shell_cost_result, "total_shell_cost_eur")))
-with k3:
-    metric_card("Roof Cost", fmt_eur(safe_get(roof_cost_result, "total_roof_cost_eur")))
-with k4:
-    metric_card("Final Total", fmt_eur(safe_get(total_project_cost_result, "total_project_cost_eur")))
 
+# ----------------------------
+# Main output
+# ----------------------------
 if best_shell is None:
     st.error("No valid optimized shell design found.")
 else:
-    shell_df = pd.DataFrame({
-        "Shell Course": list(range(1, len(best_shell["shell_materials"]) + 1)),
-        "Material": [val(x) for x in best_shell["shell_materials"]],
-        "Thickness (mm)": [val(x) for x in best_shell["course_thicknesses"]],
-    })
+    html_block(
+        """
+        <div style="
+            margin-top: 18px;
+            margin-bottom: 18px;
+            background: white;
+            border: 1px solid #e4e7eb;
+            border-left: 8px solid #F37021;
+            border-radius: 12px;
+            padding: 16px 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.04);
+        ">
+            <div style="
+                font-size: 22px;
+                font-weight: 800;
+                color: #163a5a;
+                margin-bottom: 4px;
+            ">
+                Design Output Summary
+            </div>
+            <div style="
+                font-size: 13px;
+                color: #667085;
+                line-height: 1.4;
+            ">
+                Optimized preliminary configuration for bottom, shell, and fixed cone roof.
+            </div>
+        </div>
+        """
+    )
 
-    bottom_df = pd.DataFrame([
+    shell_df = pd.DataFrame(
         {
-            "Component": "Annular Plate",
-            "Material": val(safe_get(bottom_result, "annular_plate_material")),
-            "Thickness (mm)": val(safe_get(bottom_result, "annular_plate_corroded_thickness_mm")),
-        },
-        {
-            "Component": "Sketch Bottom Plate",
-            "Material": val(safe_get(bottom_result, "bottom_plate_material")),
-            "Thickness (mm)": val(safe_get(bottom_result, "minimum_nominal_bottom_plate_thickness")),
-        },
-    ])
+            "Shell Course": list(range(1, len(best_shell["shell_materials"]) + 1)),
+            "Material": [val(x) for x in best_shell["shell_materials"]],
+            "Thickness (mm)": [val(x) for x in best_shell["course_thicknesses"]],
+        }
+    )
 
-    roof_df = pd.DataFrame([
-        {"Parameter": "Rafter Type", "Value": val(safe_get(roof_result, "rafter_type"))},
-        {"Parameter": "Number of Rafters", "Value": val(safe_get(roof_result, "number_of_rafters"))},
-        {"Parameter": "Status", "Value": val(safe_get(roof_result, "status"))},
-        {"Parameter": "Crown Ring Type", "Value": val(safe_get(roof_result, "crown_ring_type"))},
-    ])
+    bottom_df = pd.DataFrame(
+        [
+            {
+                "Component": "Annular Plate",
+                "Material": val(safe_get(bottom_result, "annular_plate_material")),
+                "Thickness (mm)": val(safe_get(bottom_result, "annular_plate_corroded_thickness_mm")),
+            },
+            {
+                "Component": "Bottom Plate",
+                "Material": val(safe_get(bottom_result, "bottom_plate_material")),
+                "Thickness (mm)": val(safe_get(bottom_result, "minimum_nominal_bottom_plate_thickness")),
+            },
+        ]
+    )
+
+    roof_df = pd.DataFrame(
+        [
+            {"Parameter": "Rafter Type", "Value": val(safe_get(roof_result, "rafter_type"))},
+            {"Parameter": "Number of Rafters", "Value": val(safe_get(roof_result, "number_of_rafters"))},
+            {"Parameter": "Status", "Value": val(safe_get(roof_result, "status"))},
+            {"Parameter": "Crown Ring Type", "Value": val(safe_get(roof_result, "crown_ring_type"))},
+        ]
+    )
 
     col1, col2 = st.columns([1.15, 1])
+
     with col1:
         section_card_title("Optimized Shell Courses")
         st.dataframe(shell_df, use_container_width=True, hide_index=True)
+
     with col2:
         section_card_title("Bottom Plates")
         st.dataframe(bottom_df, use_container_width=True, hide_index=True)
@@ -469,16 +920,137 @@ else:
     else:
         st.error("Roof design is NOT SAFE")
 
-    st.subheader("Cost Summary")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        metric_card("Bottom Total", fmt_eur(safe_get(bottom_cost_result, "total_cost")), fmt_tonnes(bottom_weight_tonnes))
-    with c2:
-        metric_card("Shell Total", fmt_eur(safe_get(shell_cost_result, "total_shell_cost_eur")), fmt_hours(safe_get(shell_cost_result, "total_shop_hours")))
-    with c3:
-        metric_card("Roof Total", fmt_eur(safe_get(roof_cost_result, "total_roof_cost_eur")), fmt_hours(safe_get(roof_cost_result, "total_roof_shop_hours")))
-    with c4:
-        metric_card("Other Costs", fmt_eur(other_cost_eur), "Site erection + NDT + accessories")
+    html_block(
+        """
+        <div style="
+            margin-top: 22px;
+            margin-bottom: 18px;
+            background: white;
+            border: 1px solid #e4e7eb;
+            border-left: 8px solid #1F4E79;
+            border-radius: 12px;
+            padding: 16px 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.04);
+        ">
+            <div style="
+                font-size: 22px;
+                font-weight: 800;
+                color: #163a5a;
+                margin-bottom: 4px;
+            ">
+                Cost Output Summary
+            </div>
+            <div style="
+                font-size: 13px;
+                color: #667085;
+                line-height: 1.4;
+            ">
+                Overview of estimated costs for bottom, shell, roof and other project-related items.
+            </div>
+        </div>
+        """
+    )
 
-    st.subheader("Final Project Total")
-    st.metric("Total Project Cost", fmt_eur(safe_get(total_project_cost_result, "total_project_cost_eur")))
+    top1, top2, top3 = st.columns(3)
+    with top1:
+        metric_card("Final Total", fmt_eur(safe_num(total_project_cost_result, "total_project_cost_eur", 0)), "Full project estimate")
+    with top2:
+        metric_card("Other Costs", fmt_eur(other_cost_eur), "Site erection + NDT + accessories")
+    with top3:
+        metric_card("Total Tank Weight", fmt_tonnes(total_tank_weight_tonnes), "Bottom + shell + roof")
+
+    html_block(
+        """
+        <div style="
+            margin-top: 18px;
+            margin-bottom: 10px;
+            background: white;
+            border: 1px solid #e4e7eb;
+            border-left: 8px solid #1F4E79;
+            border-radius: 12px;
+            padding: 14px 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.04);
+        ">
+            <div style="font-size: 20px; font-weight: 800; color: #163a5a;">Bottom</div>
+        </div>
+        """
+    )
+    b1, b2 = st.columns(2)
+    with b1:
+        metric_card("Total Cost", fmt_eur(safe_num(bottom_cost_result, "total_cost", 0)))
+    with b2:
+        metric_card("Weight", fmt_tonnes(bottom_weight_tonnes))
+
+    html_block(
+        """
+        <div style="
+            margin-top: 18px;
+            margin-bottom: 10px;
+            background: white;
+            border: 1px solid #e4e7eb;
+            border-left: 8px solid #1F4E79;
+            border-radius: 12px;
+            padding: 14px 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.04);
+        ">
+            <div style="font-size: 20px; font-weight: 800; color: #163a5a;">Shell</div>
+        </div>
+        """
+    )
+    s1, s2, s3 = st.columns(3)
+    with s1:
+        metric_card("Total Cost", fmt_eur(safe_num(shell_cost_result, "total_shell_cost_eur", 0)))
+    with s2:
+        metric_card("Weight", fmt_tonnes(shell_weight_tonnes))
+    with s3:
+        metric_card("Stiffening Rings", str(val(safe_get(shell_cost_result, "number_of_stiffening_rings"))))
+
+    html_block(
+        """
+        <div style="
+            margin-top: 18px;
+            margin-bottom: 10px;
+            background: white;
+            border: 1px solid #e4e7eb;
+            border-left: 8px solid #1F4E79;
+            border-radius: 12px;
+            padding: 14px 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.04);
+        ">
+            <div style="font-size: 20px; font-weight: 800; color: #163a5a;">Roof</div>
+        </div>
+        """
+    )
+    r1, r2, r3 = st.columns(3)
+    with r1:
+        metric_card("Total Cost", fmt_eur(safe_num(roof_cost_result, "total_roof_cost_eur", 0)))
+    with r2:
+        metric_card("Weight", fmt_tonnes(roof_weight_tonnes))
+    with r3:
+        metric_card("N° Rafters", str(val(safe_get(roof_cost_result, "number_of_rafters"))))
+
+    html_block(
+        """
+        <div style="
+            margin-top: 18px;
+            margin-bottom: 10px;
+            background: white;
+            border: 1px solid #e4e7eb;
+            border-left: 8px solid #1F4E79;
+            border-radius: 12px;
+            padding: 14px 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.04);
+        ">
+            <div style="font-size: 20px; font-weight: 800; color: #163a5a;">Other Costs</div>
+        </div>
+        """
+    )
+    o1, o2, o3 = st.columns(3)
+    with o1:
+        metric_card("Site Erection", fmt_eur(safe_num(site_erection_cost_result, "total_site_related_costs", 0)))
+    with o2:
+        metric_card("NDT", fmt_eur(safe_num(ndt_cost_result, "total_ndt_cost_eur", 0)))
+    with o3:
+        metric_card("Accessories", fmt_eur(ACCESSORIES_FIXED_COST_EUR))
+
+    st.success("Bottom, shell, roof and other core costs are included.")
