@@ -27,7 +27,16 @@ from main import (
 st.set_page_config(
     page_title="Cost Estimate for New Build Storage Tanks",
     layout="wide",
+    page_icon="verwater_logo.png",   # 👈 ADD THIS LINE
 )
+
+st.markdown(
+    """
+    <link rel="apple-touch-icon" href="verwater_logo.png">
+    """,
+    unsafe_allow_html=True,
+)
+
 
 st.markdown(
     """
